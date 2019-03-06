@@ -31,9 +31,14 @@ const getClientEnvironment = require('./env');
 const ModuleNotFoundPlugin = require('react-dev-utils/ModuleNotFoundPlugin');
 const ForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin-alt');
 const typescriptFormatter = require('react-dev-utils/typescriptFormatter');
+const HappyPack = require('happypack');
+const os = require('os');
 // @remove-on-eject-begin
 const getCacheIdentifier = require('react-dev-utils/getCacheIdentifier');
 // @remove-on-eject-end
+
+// HappyPack thread pool.
+const happypackThreadPool = HappyPack.ThreadPool({ size: os.cpus().length });
 
 // Source maps are resource heavy and can cause out of memory issue for large source files.
 const shouldUseSourceMap = process.env.GENERATE_SOURCEMAP !== 'false';
@@ -49,6 +54,7 @@ const cssRegex = /\.css$/;
 const cssModuleRegex = /\.module\.css$/;
 const sassRegex = /\.(scss|sass)$/;
 const sassModuleRegex = /\.module\.(scss|sass)$/;
+const lessRegex = /\.less$/;
 
 // This is the production and development configuration.
 // It is focused on developer experience, fast rebuilds, and a minimal bundle.
@@ -75,8 +81,15 @@ module.exports = function(webpackEnv) {
   // Get environment variables to inject into our app.
   const env = getClientEnvironment(publicUrl);
 
+  // Get externals from package.json
+  const externals = require(paths.appPackageJson).externals || undefined;
+
   // common function to get style loaders
-  const getStyleLoaders = (cssOptions, preProcessor) => {
+  const getStyleLoaders = (
+    cssOptions,
+    preProcessor,
+    preProcessorOptions = {}
+  ) => {
     const loaders = [
       isEnvDevelopment && require.resolve('style-loader'),
       isEnvProduction && {
@@ -117,6 +130,7 @@ module.exports = function(webpackEnv) {
         loader: require.resolve(preProcessor),
         options: {
           sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
+          ...preProcessorOptions,
         },
       });
     }
@@ -132,6 +146,7 @@ module.exports = function(webpackEnv) {
         ? 'source-map'
         : false
       : isEnvDevelopment && 'eval-source-map',
+    externals: isEnvProduction ? externals : undefined,
     // These are the "entry points" to our application.
     // This means they will be the "root" imports that are included in JS bundle.
     entry: [
@@ -275,6 +290,7 @@ module.exports = function(webpackEnv) {
         // Support React Native Web
         // https://www.smashingmagazine.com/2016/08/a-glimpse-into-the-future-with-react-native-for-web/
         'react-native': 'react-native-web',
+        src: path.resolve(paths.appSrc),
       },
       plugins: [
         // Adds support for installing with Plug'n'Play, leading to faster installs and adding
@@ -306,22 +322,7 @@ module.exports = function(webpackEnv) {
         {
           test: /\.(js|mjs|jsx)$/,
           enforce: 'pre',
-          use: [
-            {
-              options: {
-                formatter: require.resolve('react-dev-utils/eslintFormatter'),
-                eslintPath: require.resolve('eslint'),
-                // @remove-on-eject-begin
-                baseConfig: {
-                  extends: [require.resolve('eslint-config-react-app')],
-                },
-                ignore: false,
-                useEslintrc: false,
-                // @remove-on-eject-end
-              },
-              loader: require.resolve('eslint-loader'),
-            },
-          ],
+          use: 'happypack/loader?id=lint',
           include: paths.appSrc,
         },
         {
@@ -345,89 +346,14 @@ module.exports = function(webpackEnv) {
             {
               test: /\.(js|mjs|jsx|ts|tsx)$/,
               include: paths.appSrc,
-              loader: require.resolve('babel-loader'),
-              options: {
-                customize: require.resolve(
-                  'babel-preset-react-app/webpack-overrides'
-                ),
-                // @remove-on-eject-begin
-                babelrc: false,
-                configFile: false,
-                presets: [require.resolve('babel-preset-react-app')],
-                // Make sure we have a unique cache identifier, erring on the
-                // side of caution.
-                // We remove this when the user ejects because the default
-                // is sane and uses Babel options. Instead of options, we use
-                // the react-scripts and babel-preset-react-app versions.
-                cacheIdentifier: getCacheIdentifier(
-                  isEnvProduction
-                    ? 'production'
-                    : isEnvDevelopment && 'development',
-                  [
-                    'babel-plugin-named-asset-import',
-                    'babel-preset-react-app',
-                    'react-dev-utils',
-                    'react-scripts',
-                  ]
-                ),
-                // @remove-on-eject-end
-                plugins: [
-                  [
-                    require.resolve('babel-plugin-named-asset-import'),
-                    {
-                      loaderMap: {
-                        svg: {
-                          ReactComponent: '@svgr/webpack?-svgo![path]',
-                        },
-                      },
-                    },
-                  ],
-                ],
-                // This is a feature of `babel-loader` for webpack (not Babel itself).
-                // It enables caching results in ./node_modules/.cache/babel-loader/
-                // directory for faster rebuilds.
-                cacheDirectory: true,
-                cacheCompression: isEnvProduction,
-                compact: isEnvProduction,
-              },
+              use: 'happypack/loader?id=babelmain',
             },
             // Process any JS outside of the app with Babel.
             // Unlike the application JS, we only compile the standard ES features.
             {
               test: /\.(js|mjs)$/,
               exclude: /@babel(?:\/|\\{1,2})runtime/,
-              loader: require.resolve('babel-loader'),
-              options: {
-                babelrc: false,
-                configFile: false,
-                compact: false,
-                presets: [
-                  [
-                    require.resolve('babel-preset-react-app/dependencies'),
-                    { helpers: true },
-                  ],
-                ],
-                cacheDirectory: true,
-                cacheCompression: isEnvProduction,
-                // @remove-on-eject-begin
-                cacheIdentifier: getCacheIdentifier(
-                  isEnvProduction
-                    ? 'production'
-                    : isEnvDevelopment && 'development',
-                  [
-                    'babel-plugin-named-asset-import',
-                    'babel-preset-react-app',
-                    'react-dev-utils',
-                    'react-scripts',
-                  ]
-                ),
-                // @remove-on-eject-end
-                // If an error happens in a package, it's possible to be
-                // because it was compiled. Thus, we don't want the browser
-                // debugger to show the original code. Instead, the code
-                // being evaluated would be much more helpful.
-                sourceMaps: false,
-              },
+              use: 'happypack/loader?id=babeloutside',
             },
             // "postcss" loader applies autoprefixer to our CSS.
             // "css" loader resolves paths in CSS and adds assets as dependencies.
@@ -439,12 +365,7 @@ module.exports = function(webpackEnv) {
             {
               test: cssRegex,
               exclude: cssModuleRegex,
-              use: getStyleLoaders({
-                importLoaders: 1,
-                sourceMap: isEnvProduction
-                  ? shouldUseSourceMap
-                  : isEnvDevelopment,
-              }),
+              use: 'happypack/loader?id=css',
               // Don't consider CSS imports dead code even if the
               // containing package claims to have no side effects.
               // Remove this when webpack adds a warning or an error for this.
@@ -455,14 +376,7 @@ module.exports = function(webpackEnv) {
             // using the extension .module.css
             {
               test: cssModuleRegex,
-              use: getStyleLoaders({
-                importLoaders: 1,
-                sourceMap: isEnvProduction
-                  ? shouldUseSourceMap
-                  : isEnvDevelopment,
-                modules: true,
-                getLocalIdent: getCSSModuleLocalIdent,
-              }),
+              use: 'happypack/loader?id=cssModules',
             },
             // Opt-in support for SASS (using .scss or .sass extensions).
             // By default we support SASS Modules with the
@@ -470,15 +384,7 @@ module.exports = function(webpackEnv) {
             {
               test: sassRegex,
               exclude: sassModuleRegex,
-              use: getStyleLoaders(
-                {
-                  importLoaders: 2,
-                  sourceMap: isEnvProduction
-                    ? shouldUseSourceMap
-                    : isEnvDevelopment,
-                },
-                'sass-loader'
-              ),
+              use: 'happypack/loader?id=sass',
               // Don't consider CSS imports dead code even if the
               // containing package claims to have no side effects.
               // Remove this when webpack adds a warning or an error for this.
@@ -489,17 +395,11 @@ module.exports = function(webpackEnv) {
             // using the extension .module.scss or .module.sass
             {
               test: sassModuleRegex,
-              use: getStyleLoaders(
-                {
-                  importLoaders: 2,
-                  sourceMap: isEnvProduction
-                    ? shouldUseSourceMap
-                    : isEnvDevelopment,
-                  modules: true,
-                  getLocalIdent: getCSSModuleLocalIdent,
-                },
-                'sass-loader'
-              ),
+              use: 'happypack/loader?id=sassModules',
+            },
+            {
+              test: lessRegex,
+              use: 'happypack/loader?id=less',
             },
             // "file" loader makes sure those assets get served by WebpackDevServer.
             // When you `import` an asset, you get its (virtual) filename.
@@ -524,6 +424,196 @@ module.exports = function(webpackEnv) {
       ],
     },
     plugins: [
+      // HappyPack for eslint
+      new HappyPack({
+        id: 'lint',
+        threadPool: happypackThreadPool,
+        loaders: [
+          {
+            options: {
+              formatter: require.resolve('react-dev-utils/eslintFormatter'),
+              eslintPath: require.resolve('eslint'),
+              // @remove-on-eject-begin
+              baseConfig: {
+                extends: [require.resolve('eslint-config-react-app')],
+              },
+              ignore: false,
+              useEslintrc: false,
+              // @remove-on-eject-end
+            },
+            loader: require.resolve('eslint-loader'),
+          },
+        ],
+      }),
+      // HappyPack for babel
+      new HappyPack({
+        id: 'babelmain',
+        threadPool: happypackThreadPool,
+        loaders: [
+          {
+            loader: require.resolve('babel-loader'),
+            options: {
+              customize: require.resolve(
+                'babel-preset-react-app/webpack-overrides'
+              ),
+              // @remove-on-eject-begin
+              babelrc: false,
+              configFile: false,
+              presets: [require.resolve('babel-preset-react-app')],
+              // Make sure we have a unique cache identifier, erring on the
+              // side of caution.
+              // We remove this when the user ejects because the default
+              // is sane and uses Babel options. Instead of options, we use
+              // the react-scripts and babel-preset-react-app versions.
+              cacheIdentifier: getCacheIdentifier(
+                isEnvProduction
+                  ? 'production'
+                  : isEnvDevelopment && 'development',
+                [
+                  'babel-plugin-named-asset-import',
+                  'babel-preset-react-app',
+                  'react-dev-utils',
+                  'react-scripts',
+                ]
+              ),
+              // @remove-on-eject-end
+              plugins: [
+                [
+                  require.resolve('babel-plugin-named-asset-import'),
+                  {
+                    loaderMap: {
+                      svg: {
+                        ReactComponent: '@svgr/webpack?-svgo![path]',
+                      },
+                    },
+                  },
+                ],
+                [
+                  require.resolve('@babel/plugin-proposal-decorators'),
+                  {
+                    legacy: true,
+                  },
+                ],
+              ],
+              // This is a feature of `babel-loader` for webpack (not Babel itself).
+              // It enables caching results in ./node_modules/.cache/babel-loader/
+              // directory for faster rebuilds.
+              cacheDirectory: true,
+              cacheCompression: isEnvProduction,
+              compact: isEnvProduction,
+            },
+          },
+        ],
+      }),
+      new HappyPack({
+        id: 'babeloutside',
+        threadPool: happypackThreadPool,
+        loaders: [
+          {
+            loader: require.resolve('babel-loader'),
+            options: {
+              babelrc: false,
+              configFile: false,
+              compact: false,
+              presets: [
+                [
+                  require.resolve('babel-preset-react-app/dependencies'),
+                  { helpers: true },
+                ],
+              ],
+              cacheDirectory: true,
+              cacheCompression: isEnvProduction,
+              // @remove-on-eject-begin
+              cacheIdentifier: getCacheIdentifier(
+                isEnvProduction
+                  ? 'production'
+                  : isEnvDevelopment && 'development',
+                [
+                  'babel-plugin-named-asset-import',
+                  'babel-preset-react-app',
+                  'react-dev-utils',
+                  'react-scripts',
+                ]
+              ),
+              // @remove-on-eject-end
+              // If an error happens in a package, it's possible to be
+              // because it was compiled. Thus, we don't want the browser
+              // debugger to show the original code. Instead, the code
+              // being evaluated would be much more helpful.
+              sourceMaps: false,
+            },
+          },
+        ],
+      }),
+      new HappyPack({
+        id: 'css',
+        threadPool: happypackThreadPool,
+        loaders: getStyleLoaders({
+          importLoaders: 1,
+          sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
+        }),
+      }),
+      new HappyPack({
+        id: 'cssModules',
+        threadPool: happypackThreadPool,
+        loaders: getStyleLoaders({
+          importLoaders: 1,
+          sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
+          modules: true,
+          getLocalIdent: isEnvDevelopment ? getCSSModuleLocalIdent : undefined,
+          localIdentName: isEnvProduction ? '[hash:base64:5]' : undefined,
+        }),
+      }),
+      new HappyPack({
+        id: 'sass',
+        threadPool: happypackThreadPool,
+        loaders: getStyleLoaders(
+          {
+            importLoaders: 2,
+            sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
+          },
+          'sass-loader',
+          {
+            implementation: require('sass'),
+            fiber: require('fibers'),
+          }
+        ),
+      }),
+      new HappyPack({
+        id: 'sassModules',
+        threadPool: happypackThreadPool,
+        loaders: getStyleLoaders(
+          {
+            importLoaders: 2,
+            sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
+            modules: true,
+            getLocalIdent: isEnvDevelopment
+              ? getCSSModuleLocalIdent
+              : undefined,
+            localIdentName: isEnvProduction ? '[hash:base64:5]' : undefined,
+          },
+          'sass-loader',
+          {
+            implementation: require('sass'),
+            fiber: require('fibers'),
+          }
+        ),
+      }),
+      new HappyPack({
+        id: 'less',
+        threadPool: happypackThreadPool,
+        loaders: getStyleLoaders(
+          {
+            importLoaders: 2,
+            sourceMap: isEnvProduction && shouldUseSourceMap,
+          },
+          'less-loader',
+          {
+            errLogToConsole: true,
+            javascriptEnabled: true,
+          }
+        ),
+      }),
       // Generates an `index.html` file with the <script> injected.
       new HtmlWebpackPlugin(
         Object.assign(
